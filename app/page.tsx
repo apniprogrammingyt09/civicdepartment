@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
-import { Inbox, BarChart3, AlertTriangle, Trophy, FileText, Settings, Menu, X, Sun, Moon, LogOut, ChevronDown } from "lucide-react"
+import { Inbox, BarChart3, AlertTriangle, Trophy, FileText, Settings, Menu, X, Sun, Moon, LogOut, ChevronDown, TrendingUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useAuth } from "@/contexts/auth-context"
@@ -14,6 +14,7 @@ import EscalationPage from "./escalation/page"
 import GamificationPage from "./gamification/page"
 import ReportsPage from "./reports/page"
 import AdminPage from "./admin/page"
+import AnalyticsPage from "./analytics/page"
 
 export default function CivicDashboard() {
   const [activeSection, setActiveSection] = useState("monitoring")
@@ -36,6 +37,7 @@ export default function CivicDashboard() {
     { id: "escalation", icon: AlertTriangle, label: "ESCALATION" },
     { id: "gamification", icon: Trophy, label: "LEADERBOARD" },
     { id: "reports", icon: FileText, label: "REPORTS" },
+    { id: "analytics", icon: TrendingUp, label: "ANALYTICS" },
     { id: "admin", icon: Settings, label: "ADMIN" },
   ]
 
@@ -169,6 +171,7 @@ export default function CivicDashboard() {
           {activeSection === "escalation" && <EscalationPage selectedDepartment={selectedDepartment} />}
           {activeSection === "gamification" && <GamificationPage selectedDepartment={selectedDepartment} />}
           {activeSection === "reports" && <ReportsPage selectedDepartment={selectedDepartment} />}
+          {activeSection === "analytics" && <AnalyticsPage selectedDepartment={selectedDepartment} />}
           {activeSection === "admin" && <AdminPage selectedDepartment={selectedDepartment} />}
         </div>
       </div>
