@@ -3,11 +3,12 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
-import { Inbox, BarChart3, AlertTriangle, Trophy, FileText, Settings, Menu, X, Sun, Moon, LogOut, ChevronDown, TrendingUp } from "lucide-react"
+import { Inbox, BarChart3, AlertTriangle, Trophy, FileText, Settings, Menu, X, Sun, Moon, LogOut, ChevronDown, TrendingUp, MessageSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useAuth } from "@/contexts/auth-context"
 import { departments } from "@/lib/auth"
+import ProtectedRoute from "@/components/protected-route"
 import TaskManagementPage from "./task-management/page"
 import MonitoringPage from "./monitoring/page"
 import EscalationPage from "./escalation/page"
@@ -15,8 +16,11 @@ import GamificationPage from "./gamification/page"
 import ReportsPage from "./reports/page"
 import AdminPage from "./admin/page"
 import AnalyticsPage from "./analytics/page"
+import ProfilePage from "./profile/page"
+import UserManagementPage from "./user-management/page"
+import ChatPage from "./chat/page"
 
-export default function CivicDashboard() {
+function CivicDashboard() {
   const [activeSection, setActiveSection] = useState("monitoring")
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -25,11 +29,14 @@ export default function CivicDashboard() {
   const router = useRouter()
 
   useEffect(() => {
-    setMounted(true)
     if (!user) {
       router.push('/login')
     }
   }, [user, router])
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const navigationItems = [
     { id: "tasks", icon: Inbox, label: "TASK MANAGEMENT" },
@@ -38,10 +45,12 @@ export default function CivicDashboard() {
     { id: "gamification", icon: Trophy, label: "LEADERBOARD" },
     { id: "reports", icon: FileText, label: "REPORTS" },
     { id: "analytics", icon: TrendingUp, label: "ANALYTICS" },
+    { id: "chat", icon: MessageSquare, label: "CHAT" },
+    { id: "profile", icon: Settings, label: "PROFILE" },
     { id: "admin", icon: Settings, label: "ADMIN" },
   ]
 
-  if (!mounted || !user) {
+  if (!mounted) {
     return null
   }
 
@@ -133,19 +142,25 @@ export default function CivicDashboard() {
             <div className="text-sm text-primary sm:hidden font-medium font-orbitron tracking-wide">
               {navigationItems.find((item) => item.id === activeSection)?.label}
             </div>
-            <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-              <SelectTrigger className="w-48 border-primary glow-orange">
-                <SelectValue placeholder="Select Department" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Departments</SelectItem>
-                {departments.map((dept) => (
-                  <SelectItem key={dept.id} value={dept.id}>
-                    {dept.code} - {dept.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {user?.role === 'admin' ? (
+              <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+                <SelectTrigger className="w-48 border-primary glow-orange">
+                  <SelectValue placeholder="Select Department" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Departments</SelectItem>
+                  {departments.map((dept) => (
+                    <SelectItem key={dept.id} value={dept.id}>
+                      {dept.code} - {dept.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="px-3 py-2 bg-accent rounded border border-primary text-sm font-orbitron">
+                {user?.department.code} - {user?.department.name}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-4">
             <Button
@@ -172,9 +187,19 @@ export default function CivicDashboard() {
           {activeSection === "gamification" && <GamificationPage selectedDepartment={selectedDepartment} />}
           {activeSection === "reports" && <ReportsPage selectedDepartment={selectedDepartment} />}
           {activeSection === "analytics" && <AnalyticsPage selectedDepartment={selectedDepartment} />}
+          {activeSection === "chat" && <ChatPage />}
+          {activeSection === "profile" && <ProfilePage />}
           {activeSection === "admin" && <AdminPage selectedDepartment={selectedDepartment} />}
         </div>
       </div>
     </div>
+  )
+}
+
+export default function Page() {
+  return (
+    <ProtectedRoute>
+      <CivicDashboard />
+    </ProtectedRoute>
   )
 }

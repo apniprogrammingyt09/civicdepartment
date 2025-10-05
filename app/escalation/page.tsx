@@ -1,68 +1,220 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, addDoc, getDocs } from "firebase/firestore"
+import { db } from "@/lib/firebase"
+import { getAuth } from "firebase/auth"
 import { AlertTriangle, Clock, Users, MessageSquare, ArrowUp } from "lucide-react"
 
-export default function EscalationPage() {
-  const escalatedTasks = [
-    {
-      id: "WD-2024-0875",
-      title: "Major water main break affecting 500+ residents",
-      department: "Water & Sanitation",
-      assignee: "Mike Johnson",
-      escalatedBy: "John Doe",
-      escalatedAt: "2024-01-15 14:30",
-      overdueDays: 3,
-      priority: "critical",
-      reason: "Exceeds department budget limit ($50,000)",
-      status: "pending-approval",
-    },
-    {
-      id: "TR-2024-0234",
-      title: "Traffic light system failure at major intersection",
-      department: "Traffic Management",
-      assignee: "Sarah Wilson",
-      escalatedBy: "Traffic Control",
-      escalatedAt: "2024-01-15 10:15",
-      overdueDays: 1,
-      priority: "high",
-      reason: "Requires coordination with power company",
-      status: "in-review",
-    },
-    {
-      id: "PS-2024-0156",
-      title: "Repeated noise complaints - commercial district",
-      department: "Public Safety",
-      assignee: "Lisa Chen",
-      escalatedBy: "Community Relations",
-      escalatedAt: "2024-01-14 16:45",
-      overdueDays: 2,
-      priority: "medium",
-      reason: "Legal action threatened by business owner",
-      status: "pending-approval",
-    },
-  ]
+interface EscalationPageProps {
+  selectedDepartment: string
+}
 
-  const crossDepartmentTasks = [
-    {
-      id: "CD-2024-0012",
-      title: "Road construction affecting water line access",
-      departments: ["Traffic Management", "Water & Sanitation"],
-      coordinator: "John Doe",
-      status: "active",
-      progress: 65,
-    },
-    {
-      id: "CD-2024-0013",
-      title: "Park renovation with new lighting installation",
-      departments: ["Parks & Recreation", "Public Works"],
-      coordinator: "Sarah Wilson",
-      status: "planning",
-      progress: 25,
-    },
-  ]
+export default function EscalationPage({ selectedDepartment }: EscalationPageProps) {
+  const [escalatedTasks, setEscalatedTasks] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const [approvedEscalations, setApprovedEscalations] = useState<any[]>([])
+  const [rejectedEscalations, setRejectedEscalations] = useState<any[]>([])
+
+  useEffect(() => {
+    // Pending escalations - filter by department
+    const pendingRef = collection(db, 'issues')
+    let pendingQuery = query(pendingRef, where('escalation.status', '==', 'pending'))
+    
+    if (selectedDepartment !== 'all') {
+      pendingQuery = query(pendingRef, 
+        where('escalation.status', '==', 'pending'),
+        where('department', '==', selectedDepartment)
+      )
+    }
+    
+    const unsubscribePending = onSnapshot(pendingQuery, (snapshot) => {
+      const tasks = snapshot.docs.map(doc => {
+        const data = doc.data()
+        return {
+          id: doc.id,
+          title: data.summary || 'Issue reported',
+          department: data.department || 'Unknown',
+          assignee: data.assignedPersonnel?.name || 'Unassigned',
+          escalatedBy: data.escalation?.escalatedBy || 'Worker',
+          escalatedAt: data.escalation?.escalatedAt?.toDate?.()?.toLocaleString() || 'Recently',
+          priority: data.priority?.toLowerCase() || 'medium',
+          reason: data.escalation?.reason || 'No reason provided',
+          status: 'pending-approval',
+          location: data.geoData?.address || 'Unknown location'
+        }
+      })
+      setEscalatedTasks(tasks)
+      setLoading(false)
+    })
+
+    // Approved escalations - filter by department
+    let approvedQuery = query(pendingRef, where('escalation.status', '==', 'approved'))
+    
+    if (selectedDepartment !== 'all') {
+      approvedQuery = query(pendingRef, 
+        where('escalation.status', '==', 'approved'),
+        where('department', '==', selectedDepartment)
+      )
+    }
+    const unsubscribeApproved = onSnapshot(approvedQuery, (snapshot) => {
+      const tasks = snapshot.docs.map(doc => {
+        const data = doc.data()
+        return {
+          id: doc.id,
+          title: data.summary || 'Issue reported',
+          escalatedBy: data.escalation?.escalatedBy || 'Worker',
+          approvedBy: data.escalation?.approvedBy || 'Admin',
+          approvedAt: data.escalation?.approvedAt?.toDate?.()?.toLocaleString() || 'Recently',
+          reason: data.escalation?.reason || 'No reason provided'
+        }
+      })
+      setApprovedEscalations(tasks)
+    })
+
+    // Rejected escalations - filter by department
+    let rejectedQuery = query(pendingRef, where('escalation.status', '==', 'rejected'))
+    
+    if (selectedDepartment !== 'all') {
+      rejectedQuery = query(pendingRef, 
+        where('escalation.status', '==', 'rejected'),
+        where('department', '==', selectedDepartment)
+      )
+    }
+    const unsubscribeRejected = onSnapshot(rejectedQuery, (snapshot) => {
+      const tasks = snapshot.docs.map(doc => {
+        const data = doc.data()
+        return {
+          id: doc.id,
+          title: data.summary || 'Issue reported',
+          escalatedBy: data.escalation?.escalatedBy || 'Worker',
+          rejectedBy: data.escalation?.rejectedBy || 'Admin',
+          rejectedAt: data.escalation?.rejectedAt?.toDate?.()?.toLocaleString() || 'Recently',
+          reason: data.escalation?.reason || 'No reason provided'
+        }
+      })
+      setRejectedEscalations(tasks)
+    })
+
+    return () => {
+      unsubscribePending()
+      unsubscribeApproved()
+      unsubscribeRejected()
+    }
+  }, [selectedDepartment])
+
+  const handleApproveEscalation = async (taskId: string) => {
+    try {
+      const auth = getAuth()
+      const task = escalatedTasks.find(t => t.id === taskId)
+      
+      const issueRef = doc(db, 'issues', taskId)
+      await updateDoc(issueRef, {
+        'escalation.status': 'approved',
+        'escalation.approvedBy': 'Department Admin',
+        'escalation.approvedAt': serverTimestamp(),
+        status: 'assign',
+        lastUpdated: serverTimestamp()
+      })
+      
+      // Create social media post
+      if (task) {
+        await createEscalationPost(task)
+        await notifyOriginalUser(task)
+      }
+    } catch (error) {
+      console.error('Error approving escalation:', error)
+    }
+  }
+
+  const createEscalationPost = async (task: any) => {
+    try {
+      const auth = getAuth()
+      const postsRef = collection(db, 'posts')
+      await addDoc(postsRef, {
+        description: `🚨 Escalation Approved: ${task.title} at ${task.location}. This issue has been escalated and approved for priority handling by the department.`,
+        imageUrl: 'https://cdn3d.iconscout.com/3d/premium/thumb/delete-task-3d-icon-png-download-12470285.png',
+        createdAt: serverTimestamp(),
+        reportedTime: serverTimestamp(),
+        geoData: {
+          address: task.location,
+          city: task.location,
+          region: 'Madhya Pradesh',
+          country: 'India'
+        },
+        userId: auth.currentUser?.uid,
+        uid: auth.currentUser?.uid,
+        userName: 'Civic Department',
+        userAvatar: 'https://ui-avatars.com/api/?name=Dept&background=0066cc&color=fff',
+        isEscalated: true,
+        originalIssueId: task.id,
+        status: 'escalated-approved',
+        tags: ['#EscalationApproved', '#PriorityIssue']
+      })
+    } catch (error) {
+      console.error('Error creating escalation post:', error)
+    }
+  }
+
+  const notifyOriginalUser = async (task: any) => {
+    try {
+      // Get original issue to find user who posted it
+      const issuesRef = collection(db, 'issues')
+      const issueQuery = query(issuesRef, where('__name__', '==', task.id))
+      const issueSnapshot = await getDocs(issueQuery)
+      
+      if (!issueSnapshot.empty) {
+        const issueData = issueSnapshot.docs[0].data()
+        const originalUserId = issueData.userId
+        const originalPostId = issueData.originalPostId
+        
+        if (originalUserId) {
+          // Create notification for original user
+          const notificationsRef = collection(db, 'notifications')
+          await addDoc(notificationsRef, {
+            userId: originalUserId,
+            title: 'Escalation Approved',
+            message: `Your reported issue "${task.title}" has been escalated and approved for priority handling.`,
+            type: 'escalation_approved',
+            issueId: task.id,
+            createdAt: serverTimestamp(),
+            read: false
+          })
+        }
+        
+        // Update original post status to show escalation approved
+        if (originalPostId) {
+          const postRef = doc(db, 'posts', originalPostId)
+          await updateDoc(postRef, {
+            status: 'escalated-approved',
+            escalationApproved: true,
+            escalationApprovedAt: serverTimestamp()
+          })
+        }
+      }
+    } catch (error) {
+      console.error('Error notifying user:', error)
+    }
+  }
+
+  const handleRejectEscalation = async (taskId: string) => {
+    try {
+      const issueRef = doc(db, 'issues', taskId)
+      await updateDoc(issueRef, {
+        'escalation.status': 'rejected',
+        'escalation.rejectedBy': 'Department Admin',
+        'escalation.rejectedAt': serverTimestamp(),
+        status: 'assign',
+        lastUpdated: serverTimestamp()
+      })
+    } catch (error) {
+      console.error('Error rejecting escalation:', error)
+    }
+  }
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -86,8 +238,8 @@ export default function EscalationPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-muted-foreground text-xs md:text-sm">Pending Escalations</p>
-                <p className="text-foreground text-xl md:text-2xl font-bold">23</p>
-                <p className="text-red-500 text-xs">+3 since yesterday</p>
+                <p className="text-foreground text-xl md:text-2xl font-bold">{escalatedTasks.length}</p>
+                <p className="text-red-500 text-xs">Requires attention</p>
               </div>
               <AlertTriangle className="w-6 h-6 md:w-8 md:h-8 text-red-500" />
             </div>
@@ -98,11 +250,11 @@ export default function EscalationPage() {
           <CardContent className="pt-4 md:pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-muted-foreground text-xs md:text-sm">Overdue Tasks</p>
-                <p className="text-foreground text-xl md:text-2xl font-bold">8</p>
-                <p className="text-orange-500 text-xs">Requires immediate attention</p>
+                <p className="text-muted-foreground text-xs md:text-sm">Approved Escalations</p>
+                <p className="text-foreground text-xl md:text-2xl font-bold">{approvedEscalations.length}</p>
+                <p className="text-green-500 text-xs">Successfully approved</p>
               </div>
-              <Clock className="w-6 h-6 md:w-8 md:h-8 text-orange-500" />
+              <Clock className="w-6 h-6 md:w-8 md:h-8 text-green-500" />
             </div>
           </CardContent>
         </Card>
@@ -111,11 +263,11 @@ export default function EscalationPage() {
           <CardContent className="pt-4 md:pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-muted-foreground text-xs md:text-sm">Cross-Dept Tasks</p>
-                <p className="text-foreground text-xl md:text-2xl font-bold">12</p>
-                <p className="text-blue-500 text-xs">Active collaborations</p>
+                <p className="text-muted-foreground text-xs md:text-sm">Rejected Escalations</p>
+                <p className="text-foreground text-xl md:text-2xl font-bold">{rejectedEscalations.length}</p>
+                <p className="text-red-500 text-xs">Declined requests</p>
               </div>
-              <Users className="w-6 h-6 md:w-8 md:h-8 text-blue-500" />
+              <Users className="w-6 h-6 md:w-8 md:h-8 text-red-500" />
             </div>
           </CardContent>
         </Card>
@@ -130,135 +282,179 @@ export default function EscalationPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3 md:space-y-4 max-h-96 md:max-h-[500px] overflow-y-auto">
-            {escalatedTasks.map((task) => (
-              <div
-                key={task.id}
-                className={`p-3 md:p-4 border-l-4 ${getPriorityColor(task.priority)} bg-accent rounded`}
-              >
-                <div className="flex items-start justify-between mb-2 md:mb-3">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-foreground font-semibold text-sm md:text-base leading-tight">{task.title}</h3>
-                    <p className="text-muted-foreground text-xs font-mono">{task.id}</p>
+          {loading ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+              <p className="text-muted-foreground mt-2">Loading escalated tasks...</p>
+            </div>
+          ) : escalatedTasks.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-muted-foreground">No escalated tasks found</p>
+            </div>
+          ) : (
+            <div className="space-y-3 md:space-y-4 max-h-96 md:max-h-[500px] overflow-y-auto">
+              {escalatedTasks.map((task) => (
+                <div
+                  key={task.id}
+                  className={`p-3 md:p-4 border-l-4 ${getPriorityColor(task.priority)} bg-accent rounded`}
+                >
+                  <div className="flex items-start justify-between mb-2 md:mb-3">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-foreground font-semibold text-sm md:text-base leading-tight">{task.title}</h3>
+                      <p className="text-muted-foreground text-xs font-mono">{task.id}</p>
+                    </div>
+                    <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1 sm:gap-2 ml-2">
+                      <Badge variant="destructive" className="text-xs whitespace-nowrap">
+                        ESCALATED
+                      </Badge>
+                      <Badge variant="secondary" className="text-xs whitespace-nowrap">
+                        {task.status.toUpperCase()}
+                      </Badge>
+                    </div>
                   </div>
-                  <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1 sm:gap-2 ml-2">
-                    <Badge variant="destructive" className="text-xs whitespace-nowrap">
-                      {task.overdueDays} DAYS OVERDUE
-                    </Badge>
-                    <Badge variant="secondary" className="text-xs whitespace-nowrap">
-                      {task.status.toUpperCase()}
-                    </Badge>
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4 mb-3 md:mb-4">
-                  <div>
-                    <span className="text-muted-foreground text-xs">Department:</span>
-                    <p className="text-foreground text-sm">{task.department}</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 mb-3 md:mb-4">
+                    <div>
+                      <span className="text-muted-foreground text-xs">Department:</span>
+                      <p className="text-foreground text-sm">{task.department}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground text-xs">Assignee:</span>
+                      <p className="text-foreground text-sm">{task.assignee}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground text-xs">Escalated By:</span>
+                      <p className="text-foreground text-sm">{task.escalatedBy}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground text-xs">Location:</span>
+                      <p className="text-foreground text-sm">{task.location}</p>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-muted-foreground text-xs">Assignee:</span>
-                    <p className="text-foreground text-sm">{task.assignee}</p>
-                  </div>
-                  <div className="sm:col-span-2 lg:col-span-1">
-                    <span className="text-muted-foreground text-xs">Escalated By:</span>
-                    <p className="text-foreground text-sm">{task.escalatedBy}</p>
-                  </div>
-                </div>
 
-                <div className="bg-muted p-2 md:p-3 rounded mb-3 md:mb-4">
-                  <span className="text-muted-foreground text-xs">Escalation Reason:</span>
-                  <p className="text-foreground text-xs md:text-sm mt-1">{task.reason}</p>
-                </div>
+                  <div className="bg-muted p-2 md:p-3 rounded mb-3 md:mb-4">
+                    <span className="text-muted-foreground text-xs">Escalation Reason:</span>
+                    <p className="text-foreground text-xs md:text-sm mt-1">{task.reason}</p>
+                  </div>
 
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                  <span className="text-muted-foreground text-xs">Escalated: {task.escalatedAt}</span>
-                  <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex items-center gap-2 bg-transparent min-w-fit text-xs"
-                    >
-                      <MessageSquare className="w-3 h-3" />
-                      <span className="hidden sm:inline">Add </span>Note
-                    </Button>
-                    <Button size="sm" className="bg-primary hover:bg-primary/90 min-w-fit text-xs">
-                      <span className="hidden sm:inline">Review & </span>Approve
-                    </Button>
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <span className="text-muted-foreground text-xs">Escalated: {task.escalatedAt}</span>
+                    <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-red-500 hover:text-red-400 bg-transparent min-w-fit text-xs"
+                        onClick={() => handleRejectEscalation(task.id)}
+                      >
+                        Reject
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        className="bg-green-600 hover:bg-green-700 min-w-fit text-xs"
+                        onClick={() => handleApproveEscalation(task.id)}
+                      >
+                        Approve
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Cross-Department Collaboration */}
+      {/* Approved Escalations History */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-2 md:pb-3">
           <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground tracking-wider flex items-center gap-2">
-            <Users className="w-3 h-3 md:w-4 md:h-4 text-blue-500" />
-            CROSS-DEPARTMENT COLLABORATION
+            ✅ APPROVED ESCALATIONS
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3 md:space-y-4">
-            {crossDepartmentTasks.map((task) => (
-              <div key={task.id} className="p-3 md:p-4 bg-accent rounded border border-border">
-                <div className="flex items-start justify-between mb-2 md:mb-3">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-foreground font-semibold text-sm md:text-base leading-tight">{task.title}</h3>
-                    <p className="text-muted-foreground text-xs font-mono">{task.id}</p>
-                  </div>
-                  <Badge variant={task.status === "active" ? "default" : "secondary"} className="text-xs ml-2">
-                    {task.status.toUpperCase()}
-                  </Badge>
-                </div>
-
-                <div className="flex flex-wrap gap-1 md:gap-2 mb-2 md:mb-3">
-                  {task.departments.map((dept, index) => (
-                    <Badge key={index} variant="outline" className="text-xs">
-                      {dept}
+          {approvedEscalations.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-muted-foreground">No approved escalations</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-64 overflow-y-auto">
+              {approvedEscalations.map((task) => (
+                <div key={task.id} className="p-3 bg-green-50 dark:bg-green-950 rounded border-l-4 border-green-500">
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <h4 className="text-foreground font-medium text-sm">{task.title}</h4>
+                      <p className="text-muted-foreground text-xs font-mono">{task.id}</p>
+                    </div>
+                    <Badge variant="default" className="text-xs bg-green-600">
+                      APPROVED
                     </Badge>
-                  ))}
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-2 md:mb-3 gap-2">
-                  <div>
-                    <span className="text-muted-foreground text-xs">Coordinator:</span>
-                    <span className="text-foreground ml-2 text-sm">{task.coordinator}</span>
                   </div>
-                  <div className="text-left sm:text-right">
-                    <span className="text-muted-foreground text-xs">Progress:</span>
-                    <span className="text-foreground ml-2 font-bold text-sm">{task.progress}%</span>
+                  <div className="grid grid-cols-2 gap-4 mb-2 text-xs">
+                    <div>
+                      <span className="text-muted-foreground">Escalated by:</span>
+                      <p className="text-foreground">{task.escalatedBy}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Approved by:</span>
+                      <p className="text-foreground">{task.approvedBy}</p>
+                    </div>
                   </div>
-                </div>
-
-                <div className="w-full bg-muted rounded-full h-2 mb-2 md:mb-3">
-                  <div
-                    className="bg-primary h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${task.progress}%` }}
-                  ></div>
-                </div>
-
-                <div className="flex justify-end gap-2">
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex items-center gap-2 bg-transparent min-w-fit text-xs"
-                    >
-                      <MessageSquare className="w-3 h-3" />
-                      <span className="hidden sm:inline">Communication </span>Hub
-                    </Button>
-                    <Button size="sm" className="bg-primary hover:bg-primary/90 min-w-fit text-xs">
-                      <span className="hidden sm:inline">View </span>Details
-                    </Button>
+                  <div className="bg-muted p-2 rounded mb-2">
+                    <span className="text-muted-foreground text-xs">Reason:</span>
+                    <p className="text-foreground text-xs">{task.reason}</p>
                   </div>
+                  <span className="text-muted-foreground text-xs">Approved: {task.approvedAt}</span>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Rejected Escalations History */}
+      <Card className="bg-card border-border">
+        <CardHeader className="pb-2 md:pb-3">
+          <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground tracking-wider flex items-center gap-2">
+            ❌ REJECTED ESCALATIONS
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {rejectedEscalations.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-muted-foreground">No rejected escalations</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-64 overflow-y-auto">
+              {rejectedEscalations.map((task) => (
+                <div key={task.id} className="p-3 bg-red-50 dark:bg-red-950 rounded border-l-4 border-red-500">
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <h4 className="text-foreground font-medium text-sm">{task.title}</h4>
+                      <p className="text-muted-foreground text-xs font-mono">{task.id}</p>
+                    </div>
+                    <Badge variant="secondary" className="text-xs">
+                      REJECTED
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mb-2 text-xs">
+                    <div>
+                      <span className="text-muted-foreground">Escalated by:</span>
+                      <p className="text-foreground">{task.escalatedBy}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Rejected by:</span>
+                      <p className="text-foreground">{task.rejectedBy}</p>
+                    </div>
+                  </div>
+                  <div className="bg-muted p-2 rounded mb-2">
+                    <span className="text-muted-foreground text-xs">Reason:</span>
+                    <p className="text-foreground text-xs">{task.reason}</p>
+                  </div>
+                  <span className="text-muted-foreground text-xs">Rejected: {task.rejectedAt}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

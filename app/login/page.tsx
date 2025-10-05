@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,21 +8,34 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAuth } from '@/contexts/auth-context'
 import { departments } from '@/lib/auth'
+import { setupDepartmentUsers } from '@/lib/setup-users'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [selectedDepartment, setSelectedDepartment] = useState('all')
   const [error, setError] = useState('')
-  const { login } = useAuth()
+  const { login, user } = useAuth()
   const router = useRouter()
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (login(email, password, selectedDepartment)) {
+  useEffect(() => {
+    if (user) {
       router.push('/')
-    } else {
-      setError('Invalid credentials')
+    }
+  }, [user, router])
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    try {
+      const success = await login(email, password, selectedDepartment)
+      if (success) {
+        router.push('/')
+      } else {
+        setError('Invalid credentials')
+      }
+    } catch (error) {
+      setError('Login failed. Please try again.')
     }
   }
 
@@ -70,9 +83,21 @@ export default function LoginPage() {
           </form>
           <div className="mt-4 text-xs text-muted-foreground">
             <p>Demo accounts:</p>
-            <p>john@water.gov / password</p>
-            <p>jane@sanitation.gov / password</p>
-            <p>admin@civic.gov / password</p>
+            <p>pwd@civic.gov / password123</p>
+            <p>water@civic.gov / password123</p>
+            <p>swm@civic.gov / password123</p>
+            <p>traffic@civic.gov / password123</p>
+            <p>health@civic.gov / password123</p>
+            <p>environment@civic.gov / password123</p>
+            <p>disaster@civic.gov / password123</p>
+            <Button 
+              onClick={setupDepartmentUsers} 
+              variant="outline" 
+              size="sm" 
+              className="mt-2 w-full text-xs"
+            >
+              Setup Demo Users (First Time)
+            </Button>
           </div>
         </CardContent>
       </Card>

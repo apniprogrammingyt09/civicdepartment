@@ -15,27 +15,51 @@ export interface User {
 
 export const departments: Department[] = [
   {
-    id: 'water',
-    name: 'Water Department',
-    code: 'WTR',
+    id: 'pwd',
+    name: 'Public Works Department',
+    code: 'PWD',
     permissions: ['monitoring', 'tasks', 'reports']
   },
   {
-    id: 'sanitation',
-    name: 'Sanitation Department', 
-    code: 'SAN',
+    id: 'water',
+    name: 'Water Supply & Sewage',
+    code: 'WSS',
+    permissions: ['monitoring', 'tasks', 'reports']
+  },
+  {
+    id: 'swm',
+    name: 'Solid Waste Management',
+    code: 'SWM',
     permissions: ['monitoring', 'tasks', 'escalation', 'reports']
   },
   {
-    id: 'transport',
-    name: 'Transport Department',
-    code: 'TRP',
+    id: 'traffic',
+    name: 'Traffic Police / Transport Department',
+    code: 'TRF',
     permissions: ['monitoring', 'tasks', 'reports']
   },
   {
     id: 'health',
-    name: 'Health Department',
-    code: 'HTH',
+    name: 'Health & Sanitation Department',
+    code: 'HSN',
+    permissions: ['monitoring', 'tasks', 'escalation', 'reports']
+  },
+  {
+    id: 'environment',
+    name: 'Environment & Parks Department',
+    code: 'ENV',
+    permissions: ['monitoring', 'tasks', 'reports']
+  },
+  {
+    id: 'electricity',
+    name: 'Electricity Department',
+    code: 'ELC',
+    permissions: ['monitoring', 'tasks', 'reports']
+  },
+  {
+    id: 'disaster',
+    name: 'Disaster Management / Emergency Response',
+    code: 'DMG',
     permissions: ['monitoring', 'tasks', 'escalation', 'reports', 'gamification']
   },
   {

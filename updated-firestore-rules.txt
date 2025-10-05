@@ -1,0 +1,145 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ========================================
+    // Utility helper
+    // ========================================
+    function isUpdatingOnly(keys) {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(keys);
+    }
+
+    // ========================================
+    // USERS COLLECTION
+    // ========================================
+    match /users/{userId} {
+      // Anyone can read user profile
+      allow read: if true;
+
+      // Only authenticated can create a profile
+      allow create: if request.auth != null;
+
+      // ---------------- Owner Updates ----------------
+      // Allow owner to update their own following array and counts
+      allow update: if request.auth != null && request.auth.uid == userId && (
+        isUpdatingOnly(['following', 'followingCount']) ||
+        isUpdatingOnly(['following']) ||
+        isUpdatingOnly(['followingCount']) ||
+        isUpdatingOnly(['bio']) ||
+        isUpdatingOnly(['profileImage']) ||
+        isUpdatingOnly(['postCount']) ||
+        isUpdatingOnly(['followersCount']) ||
+        isUpdatingOnly(['name']) ||
+        isUpdatingOnly(['name', 'profileImage']) ||
+        isUpdatingOnly(['departmentId']) ||
+        isUpdatingOnly(['role']) ||
+        isUpdatingOnly(['userRole'])
+      );
+
+      // ---------------- Allow any authenticated user to update followersCount ----------------
+      // This allows users to increment/decrement other users' follower counts
+      allow update: if request.auth != null
+        && request.auth.uid != userId  // Not the owner
+        && isUpdatingOnly(['followersCount'])
+        && request.resource.data.followersCount is int;
+
+      // ---------------- NEW RULE: Allow any authenticated user to update followingCount ----------------
+      // This allows users to increment/decrement other users' following counts
+      allow update: if request.auth != null
+        && request.auth.uid != userId  // Not the owner
+        && isUpdatingOnly(['followingCount'])
+        && request.resource.data.followingCount is int;
+
+      // ---------------- Subcollections ----------------
+      match /following/{followedUserId} {
+        allow read: if true;
+        // Allow user to manage their own following list
+        allow create: if request.auth != null && request.auth.uid == userId;
+        // Allow user to delete from their own following OR allow followed user to remove follower
+        allow delete: if request.auth != null && 
+          (request.auth.uid == userId || request.auth.uid == followedUserId);
+      }
+
+      match /followers/{followerUserId} {
+        allow read: if true;
+        allow create: if request.auth != null && request.auth.uid == followerUserId;
+        allow delete: if request.auth != null && 
+          (request.auth.uid == followerUserId || request.auth.uid == userId);
+      }
+    }
+
+    // ========================================
+    // CIVICUSERS COLLECTION
+    // ========================================
+    match /civicUsers/{userId} {
+      allow read, write: if request.auth != null;
+      // Allow users to update their own profile data
+      allow update: if request.auth != null && resource.data.uid == request.auth.uid
+        && (isUpdatingOnly(['profileImage', 'updatedAt']) || isUpdatingOnly(['active', 'updatedAt']));
+    }
+
+    // ========================================
+    // DEPARTMENTS COLLECTION
+    // ========================================
+    match /departments/{departmentId} {
+      allow read: if true;
+      allow create, update: if request.auth != null;
+    }
+
+    // ========================================
+    // POSTS COLLECTION
+    // ========================================
+    match /posts/{postId} {
+      allow read: if true;
+
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.description is string
+        && (request.resource.data.imageUrl is string || request.resource.data.imageUrl == null)
+        && (request.resource.data.tags is list || request.resource.data.tags == null);
+
+      // Post owner can fully update/delete
+      allow update, delete: if request.auth != null
+        && resource.data.uid == request.auth.uid;
+
+      // Safe owner updates
+      allow update: if request.auth != null
+        && resource.data.uid == request.auth.uid
+        && isUpdatingOnly(['description','tags','imageUrl'])
+        && request.resource.data.createdAt == resource.data.createdAt;
+
+      // Safe counters liked by any user
+      allow update: if request.auth != null
+        && isUpdatingOnly(['likesCount','commentsCount'])
+        && request.resource.data.likesCount is int
+        && request.resource.data.commentsCount is int;
+    }
+
+    // ========================================
+    // MESSAGES COLLECTION
+    // ========================================
+    match /messages/{messageId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ========================================
+    // USERSTICKS COLLECTION
+    // ========================================
+    match /userSticks/{userId} {
+      allow read: if true;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId
+        && request.resource.data.points is int
+        && request.resource.data.level is int
+        && request.resource.data.currentStreak is int
+        && request.resource.data.longestStreak is int
+        && request.resource.data.currentPostPoints is int
+        && request.resource.data.badge is string
+        && request.resource.data.streakDays is list
+        && request.resource.data.lastStickDate is string;
+
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

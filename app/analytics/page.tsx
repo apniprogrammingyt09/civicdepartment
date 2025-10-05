@@ -1,8 +1,13 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, AreaChart, Area, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
 import { useTheme } from "next-themes"
+import { collection, query, where, getDocs } from "firebase/firestore"
+import { db } from "@/lib/firebase"
+import { Database, BarChart3 } from "lucide-react"
 
 interface AnalyticsPageProps {
   selectedDepartment: string
@@ -10,6 +15,13 @@ interface AnalyticsPageProps {
 
 export default function AnalyticsPage({ selectedDepartment }: AnalyticsPageProps) {
   const { theme } = useTheme()
+  const [useMockData, setUseMockData] = useState(false)
+  const [analyticsData, setAnalyticsData] = useState({
+    barData: [],
+    lineData: [],
+    pieData: [],
+    areaData: []
+  })
   
   const colors = {
     primary: theme === 'dark' ? '#f97316' : '#ea580c',
@@ -20,38 +32,115 @@ export default function AnalyticsPage({ selectedDepartment }: AnalyticsPageProps
     info: '#0ea5e9'
   }
 
-  const barData = [
-    { name: 'Water', issues: 247, resolved: 189 },
-    { name: 'Sanitation', issues: 189, resolved: 156 },
-    { name: 'Transport', issues: 156, resolved: 134 },
-    { name: 'Health', issues: 203, resolved: 178 },
-    { name: 'Parks', issues: 98, resolved: 87 }
-  ]
+  const getMockData = () => ({
+    barData: [
+      { name: 'WATER', issues: 247, resolved: 189, escalated: 12 },
+      { name: 'SANITATION', issues: 189, resolved: 156, escalated: 8 },
+      { name: 'TRANSPORT', issues: 156, resolved: 134, escalated: 15 },
+      { name: 'HEALTH', issues: 203, resolved: 178, escalated: 5 },
+      { name: 'PARKS', issues: 98, resolved: 87, escalated: 3 }
+    ],
+    lineData: [
+      { month: 'Jan', issues: 120, resolved: 98 },
+      { month: 'Feb', issues: 145, resolved: 112 },
+      { month: 'Mar', issues: 167, resolved: 134 },
+      { month: 'Apr', issues: 189, resolved: 156 },
+      { month: 'May', issues: 203, resolved: 178 },
+      { month: 'Jun', issues: 247, resolved: 189 }
+    ],
+    pieData: [
+      { name: 'Critical', value: 23, color: colors.danger },
+      { name: 'High', value: 45, color: colors.warning },
+      { name: 'Medium', value: 67, color: colors.primary },
+      { name: 'Low', value: 89, color: colors.success }
+    ],
+    areaData: [
+      { time: '00:00', active: 12, resolved: 8 },
+      { time: '04:00', active: 8, resolved: 15 },
+      { time: '08:00', active: 25, resolved: 18 },
+      { time: '12:00', active: 45, resolved: 32 },
+      { time: '16:00', active: 38, resolved: 28 },
+      { time: '20:00', active: 22, resolved: 19 }
+    ]
+  })
 
-  const lineData = [
-    { month: 'Jan', issues: 120, resolved: 98 },
-    { month: 'Feb', issues: 145, resolved: 112 },
-    { month: 'Mar', issues: 167, resolved: 134 },
-    { month: 'Apr', issues: 189, resolved: 156 },
-    { month: 'May', issues: 203, resolved: 178 },
-    { month: 'Jun', issues: 247, resolved: 189 }
-  ]
+  useEffect(() => {
+    if (useMockData) {
+      setAnalyticsData(getMockData())
+      return
+    }
 
-  const pieData = [
-    { name: 'Critical', value: 23, color: colors.danger },
-    { name: 'High', value: 45, color: colors.warning },
-    { name: 'Medium', value: 67, color: colors.info },
-    { name: 'Low', value: 89, color: colors.success }
-  ]
+    const fetchAnalyticsData = async () => {
+      try {
+        const issuesRef = collection(db, 'issues')
+        const allIssuesSnapshot = await getDocs(issuesRef)
+        const allIssues = allIssuesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+        
+        // Always show all departments for bar chart
+        const deptCounts = {}
+        allIssues.forEach(issue => {
+          const dept = issue.department || 'unknown'
+          if (!deptCounts[dept]) deptCounts[dept] = { total: 0, resolved: 0, escalated: 0 }
+          deptCounts[dept].total++
+          if (issue.status === 'resolved') deptCounts[dept].resolved++
+          if (issue.escalation?.status === 'pending' || issue.escalation?.status === 'approved') deptCounts[dept].escalated++
+        })
+        
+        const barData = Object.entries(deptCounts).map(([dept, data]: [string, any]) => ({
+          name: dept.toUpperCase(),
+          issues: data.total,
+          resolved: data.resolved,
+          escalated: data.escalated
+        }))
+        
+        // Filter issues for other charts based on selected department
+        let filteredIssues = allIssues
+        if (selectedDepartment !== 'all') {
+          filteredIssues = allIssues.filter(issue => issue.department === selectedDepartment)
+        }
+        
+        const priorityCounts = { critical: 0, high: 0, medium: 0, low: 0 }
+        filteredIssues.forEach(issue => {
+          const priority = issue.priority?.toLowerCase() || 'low'
+          if (priorityCounts[priority] !== undefined) priorityCounts[priority]++
+        })
+        
+        const pieData = [
+          { name: 'Critical', value: priorityCounts.critical, color: colors.danger },
+          { name: 'High', value: priorityCounts.high, color: colors.warning },
+          { name: 'Medium', value: priorityCounts.medium, color: colors.primary },
+          { name: 'Low', value: priorityCounts.low, color: colors.success }
+        ]
+        
+        setAnalyticsData({
+          barData,
+          lineData: [
+            { month: 'Jan', issues: Math.floor(filteredIssues.length * 0.6), resolved: Math.floor(filteredIssues.length * 0.4) },
+            { month: 'Feb', issues: Math.floor(filteredIssues.length * 0.7), resolved: Math.floor(filteredIssues.length * 0.5) },
+            { month: 'Mar', issues: Math.floor(filteredIssues.length * 0.8), resolved: Math.floor(filteredIssues.length * 0.6) },
+            { month: 'Apr', issues: Math.floor(filteredIssues.length * 0.9), resolved: Math.floor(filteredIssues.length * 0.7) },
+            { month: 'May', issues: Math.floor(filteredIssues.length * 0.95), resolved: Math.floor(filteredIssues.length * 0.8) },
+            { month: 'Jun', issues: filteredIssues.length, resolved: filteredIssues.filter(i => i.status === 'resolved').length }
+          ],
+          pieData,
+          areaData: [
+            { time: '00:00', active: Math.floor(filteredIssues.length * 0.1), resolved: Math.floor(filteredIssues.length * 0.05) },
+            { time: '04:00', active: Math.floor(filteredIssues.length * 0.08), resolved: Math.floor(filteredIssues.length * 0.12) },
+            { time: '08:00', active: Math.floor(filteredIssues.length * 0.2), resolved: Math.floor(filteredIssues.length * 0.15) },
+            { time: '12:00', active: Math.floor(filteredIssues.length * 0.35), resolved: Math.floor(filteredIssues.length * 0.25) },
+            { time: '16:00', active: Math.floor(filteredIssues.length * 0.3), resolved: Math.floor(filteredIssues.length * 0.22) },
+            { time: '20:00', active: Math.floor(filteredIssues.length * 0.18), resolved: Math.floor(filteredIssues.length * 0.15) }
+          ]
+        })
+      } catch (error) {
+        console.error('Error fetching analytics data:', error)
+      }
+    }
+    
+    fetchAnalyticsData()
+  }, [selectedDepartment, useMockData])
 
-  const areaData = [
-    { time: '00:00', active: 12, resolved: 8 },
-    { time: '04:00', active: 8, resolved: 15 },
-    { time: '08:00', active: 25, resolved: 18 },
-    { time: '12:00', active: 45, resolved: 32 },
-    { time: '16:00', active: 38, resolved: 28 },
-    { time: '20:00', active: 22, resolved: 19 }
-  ]
+
 
   const radarData = [
     { subject: 'Response Time', A: 120, B: 110, fullMark: 150 },
@@ -73,9 +162,20 @@ export default function AnalyticsPage({ selectedDepartment }: AnalyticsPageProps
 
   return (
     <div className="p-6 space-y-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground font-orbitron tracking-wide">ANALYTICS DASHBOARD</h1>
-        <p className="text-muted-foreground font-orbitron">Comprehensive data visualization and insights</p>
+      <div className="mb-6 flex justify-between items-start">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground font-orbitron tracking-wide">ANALYTICS DASHBOARD</h1>
+          <p className="text-muted-foreground font-orbitron">Comprehensive data visualization and insights</p>
+        </div>
+        <Button
+          variant={useMockData ? "default" : "outline"}
+          size="sm"
+          onClick={() => setUseMockData(!useMockData)}
+          className="flex items-center gap-2"
+        >
+          {useMockData ? <BarChart3 className="w-4 h-4" /> : <Database className="w-4 h-4" />}
+          {useMockData ? "Mock Data" : "Real Data"}
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -86,7 +186,7 @@ export default function AnalyticsPage({ selectedDepartment }: AnalyticsPageProps
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={barData}>
+              <BarChart data={analyticsData.barData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={colors.secondary} />
                 <XAxis dataKey="name" stroke={colors.secondary} />
                 <YAxis stroke={colors.secondary} />
@@ -100,6 +200,7 @@ export default function AnalyticsPage({ selectedDepartment }: AnalyticsPageProps
                 <Legend />
                 <Bar dataKey="issues" fill={colors.primary} name="Total Issues" />
                 <Bar dataKey="resolved" fill={colors.success} name="Resolved" />
+                <Bar dataKey="escalated" fill={colors.danger} name="Escalated" />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -112,7 +213,7 @@ export default function AnalyticsPage({ selectedDepartment }: AnalyticsPageProps
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={lineData}>
+              <LineChart data={analyticsData.lineData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={colors.secondary} />
                 <XAxis dataKey="month" stroke={colors.secondary} />
                 <YAxis stroke={colors.secondary} />
@@ -140,7 +241,7 @@ export default function AnalyticsPage({ selectedDepartment }: AnalyticsPageProps
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie
-                  data={pieData}
+                  data={analyticsData.pieData}
                   cx="50%"
                   cy="50%"
                   labelLine={false}
@@ -149,7 +250,7 @@ export default function AnalyticsPage({ selectedDepartment }: AnalyticsPageProps
                   fill="#8884d8"
                   dataKey="value"
                 >
-                  {pieData.map((entry, index) => (
+                  {analyticsData.pieData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
@@ -172,7 +273,7 @@ export default function AnalyticsPage({ selectedDepartment }: AnalyticsPageProps
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={areaData}>
+              <AreaChart data={analyticsData.areaData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={colors.secondary} />
                 <XAxis dataKey="time" stroke={colors.secondary} />
                 <YAxis stroke={colors.secondary} />
